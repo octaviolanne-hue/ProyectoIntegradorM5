@@ -2,8 +2,10 @@ import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { octokit } from "../config/github";
 import { createRepositorySchema } from "../schemas/github.schemas";
 import { ok, fail } from "../utils/response";
-import { getErrorStatus } from "../utils/githubError";
-export async function createRepository(
+import {
+    getErrorStatus,
+    translateGitHubError
+} from "../utils/githubError"; export async function createRepository(
     args: unknown
 ): Promise<CallToolResult> {
 
@@ -31,6 +33,7 @@ export async function createRepository(
     } catch (error: unknown) {
         const status = getErrorStatus(error);
 
+        // Error de validación de GitHub
         if (status === 422) {
             return fail(
                 "REPOSITORY_ALREADY_EXISTS",
@@ -38,9 +41,17 @@ export async function createRepository(
             );
         }
 
+        // Traducir los demás errores de GitHub
+        const translatedError = translateGitHubError(error);
+
+        console.error(
+            "[mcp] create_repository - Error:",
+            translatedError.code
+        );
+
         return fail(
-            "GITHUB_API_ERROR",
-            "No se pudo crear el repositorio."
+            translatedError.code,
+            translatedError.message
         );
     }
 }

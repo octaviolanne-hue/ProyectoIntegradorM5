@@ -3,7 +3,11 @@ import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { octokit } from "../config/github";
 import { createIssueSchema } from "../schemas/github.schemas";
 import { ok, fail } from "../utils/response";
-import { getErrorStatus } from "../utils/githubError";
+import {
+    getErrorStatus,
+    translateGitHubError
+} from "../utils/githubError";
+import { withRetry } from "../utils/retry";
 
 export async function createIssue(
     args: unknown
@@ -20,8 +24,9 @@ export async function createIssue(
         const { owner, repo, title, body } = result.data;
 
         // Preflight: comprobar que el repositorio existe
-        await octokit.rest.repos.get({ owner, repo });
-
+        await withRetry(() =>
+            octokit.rest.repos.get({ owner, repo })
+        );
         // Crear el issue
         const { data: issue } = await octokit.rest.issues.create({
             owner,
@@ -40,6 +45,7 @@ export async function createIssue(
     } catch (error: unknown) {
         const status = getErrorStatus(error);
 
+        // Mantener un error específico para repositorios inexistentes
         if (status === 404) {
             return fail(
                 "REPOSITORY_NOT_FOUND",
@@ -47,25 +53,17 @@ export async function createIssue(
             );
         }
 
-        if (status === 401) {
-            return fail(
-                "UNAUTHORIZED",
-                "Token inválido o expirado"
-            );
-        }
+        // Traducir los demás errores de GitHub
+        const translatedError = translateGitHubError(error);
 
-        if (status === 403) {
-            return fail(
-                "FORBIDDEN",
-                "No tenés permisos suficientes para realizar esta operación"
-            );
-        }
-
-        console.error("[mcp] Error creando issue:", error);
+        console.error(
+            "[mcp] create_issue - Error:",
+            translatedError.code
+        );
 
         return fail(
-            "GITHUB_API_ERROR",
-            "No se pudo crear el issue"
+            translatedError.code,
+            translatedError.message
         );
     }
 }

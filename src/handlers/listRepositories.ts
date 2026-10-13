@@ -4,7 +4,8 @@ import { octokit } from "../config/github";
 import { listRepositoriesSchema } from "../schemas/github.schemas";
 import type { RepoDTO } from "../types/github.types";
 import { ok, fail } from "../utils/response";
-import { getErrorStatus } from "../utils/githubError";
+import { translateGitHubError } from "../utils/githubError";
+import { withRetry } from "../utils/retry";
 
 export async function listRepositories(
     args: unknown
@@ -22,8 +23,9 @@ export async function listRepositories(
     }
 
     try {
-        const { data: repos } =
-            await octokit.rest.repos.listForAuthenticatedUser(result.data);
+        const { data: repos } = await withRetry(() =>
+            octokit.rest.repos.listForAuthenticatedUser(result.data)
+        );
 
         const reposDTO: RepoDTO[] = repos.map(repo => ({
             full_name: repo.full_name,
@@ -38,27 +40,16 @@ export async function listRepositories(
         return ok(reposDTO);
 
     } catch (error: unknown) {
-        const status = getErrorStatus(error);
+        const translatedError = translateGitHubError(error);
 
-        if (status === 401) {
-            return fail(
-                "UNAUTHORIZED",
-                "El token de GitHub es inválido o expiró"
-            );
-        }
-
-        if (status === 403) {
-            return fail(
-                "FORBIDDEN",
-                "No tenés permisos para consultar los repositorios"
-            );
-        }
-
-        console.error("[mcp] Error consultando GitHub:", error);
+        console.error(
+            "[mcp] list_repositories - Error:",
+            translatedError.code
+        );
 
         return fail(
-            "GITHUB_API_ERROR",
-            "No se pudieron obtener los repositorios"
+            translatedError.code,
+            translatedError.message
         );
     }
 }

@@ -1,6 +1,8 @@
 import { listIssuesSchema } from "../schemas/github.schemas";
 import { octokit } from "../config/github";
 import { ok, fail } from "../utils/response";
+import { translateGitHubError } from "../utils/githubError";
+import { withRetry } from "../utils/retry";
 
 export async function listIssues(args: unknown) {
 
@@ -18,13 +20,14 @@ export async function listIssues(args: unknown) {
 
     try {
         // Consultar los issues del repositorio
-        const { data: issues } = await octokit.rest.issues.listForRepo({
-            owner,
-            repo,
-            state,
-            per_page: 100
-        });
-
+        const { data: issues } = await withRetry(() =>
+            octokit.rest.issues.listForRepo({
+                owner,
+                repo,
+                state,
+                per_page: 100
+            })
+        );
         // Excluir pull requests y devolver solo información útil
         const filteredIssues = issues
             .filter(issue => !issue.pull_request)
@@ -43,11 +46,16 @@ export async function listIssues(args: unknown) {
         return ok(filteredIssues);
 
     } catch (error) {
-        console.error("[mcp] list_issues - Error:", error);
+        const translatedError = translateGitHubError(error);
+
+        console.error(
+            "[mcp] list_issues - Error:",
+            translatedError.code
+        );
 
         return fail(
-            "GITHUB_API_ERROR",
-            "No se pudieron obtener los issues del repositorio"
+            translatedError.code,
+            translatedError.message
         );
     }
 

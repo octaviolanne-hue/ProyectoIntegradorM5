@@ -1,9 +1,9 @@
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
-
+import { withRetry } from "../utils/retry";
 import { octokit } from "../config/github";
 import { createCommitSchema } from "../schemas/github.schemas";
 import { ok, fail } from "../utils/response";
-import { getErrorStatus } from "../utils/githubError";
+import { translateGitHubError } from "../utils/githubError";
 
 export async function createCommit(
     args: unknown
@@ -24,10 +24,12 @@ export async function createCommit(
         const { owner, repo, path, content, message } = result.data;
 
         // Obtener información del repositorio
-        const { data: repository } = await octokit.rest.repos.get({
-            owner,
-            repo
-        });
+        const { data: repository } = await withRetry(() =>
+            octokit.rest.repos.get({
+                owner,
+                repo
+            })
+        );
 
         // Identificar la rama predeterminada
         const branch = repository.default_branch;
@@ -35,11 +37,13 @@ export async function createCommit(
         console.error("[mcp] create_commit - Rama:", branch);
 
         // Obtener la referencia de la rama
-        const { data: reference } = await octokit.rest.git.getRef({
-            owner,
-            repo,
-            ref: `heads/${branch}`
-        });
+        const { data: reference } = await withRetry(() =>
+            octokit.rest.git.getRef({
+                owner,
+                repo,
+                ref: `heads/${branch}`
+            })
+        );
 
         // SHA del último commit de la rama
         const latestCommitSha = reference.object.sha;
@@ -47,11 +51,13 @@ export async function createCommit(
         console.error("[mcp] create_commit - Referencia obtenida");
 
         // Obtener los datos del último commit
-        const { data: currentCommit } = await octokit.rest.git.getCommit({
-            owner,
-            repo,
-            commit_sha: latestCommitSha
-        });
+        const { data: currentCommit } = await withRetry(() =>
+            octokit.rest.git.getCommit({
+                owner,
+                repo,
+                commit_sha: latestCommitSha
+            })
+        );
 
         // SHA del árbol de archivos actual
         const baseTreeSha = currentCommit.tree.sha;
@@ -127,11 +133,16 @@ export async function createCommit(
         });
 
     } catch (error: unknown) {
-        console.error("[mcp] Error creando commit:", error);
+        const translatedError = translateGitHubError(error);
+
+        console.error(
+            "[mcp] create_commit - Error:",
+            translatedError.code
+        );
 
         return fail(
-            "GITHUB_API_ERROR",
-            "No se pudo crear el commit"
+            translatedError.code,
+            translatedError.message
         );
     }
 }
