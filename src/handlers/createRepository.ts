@@ -20,7 +20,8 @@ import {
             await octokit.rest.repos.createForAuthenticatedUser({
                 name: result.data.name,
                 description: result.data.description,
-                private: result.data.private
+                private: result.data.private,
+                auto_init: true
             });
 
         return ok({
